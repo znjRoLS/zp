@@ -6,11 +6,15 @@ import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.*;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.x509.X509V3CertificateGenerator;
 
 import javax.security.auth.x500.X500Principal;
 import java.math.BigInteger;
 import java.security.*;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.Date;
@@ -142,16 +146,26 @@ public class Helper {
         return new X500Principal(sb.toString());
     }
 
-    public static boolean isCertificateAuthority(X509Certificate cert){
-        try {
-            byte[] basicConstraints=cert.getExtensionValue("2.5.29.19");
-            Object obj=new ASN1InputStream(basicConstraints).readObject();
-            basicConstraints=((DEROctetString)obj).getOctets();
-            obj=new ASN1InputStream(basicConstraints).readObject();
-            return BasicConstraints.getInstance((ASN1Sequence)obj).isCA();
+    public static X509Certificate[] convertChain(Certificate[] chain) throws CertificateException {
+        X509Certificate newChain[] = new X509Certificate[chain.length];
+        for (int i = 0 ; i < chain.length; i++) {
+            X509Certificate newCert = (X509Certificate) chain[i];
+            newChain[i] = newCert;
         }
-        catch (  Exception e) {
-            return false;
-        }
+
+        return newChain;
     }
+
+//    public static boolean isCertificateAuthority(X509Certificate cert){
+//        try {
+//            byte[] basicConstraints=cert.getExtensionValue("2.5.29.19");
+//            Object obj=new ASN1InputStream(basicConstraints).readObject();
+//            basicConstraints=((DEROctetString)obj).getOctets();
+//            obj=new ASN1InputStream(basicConstraints).readObject();
+//            return BasicConstraints.getInstance((ASN1Sequence)obj).isCA();
+//        }
+//        catch (  Exception e) {
+//            return false;
+//        }
+//    }
 }

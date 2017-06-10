@@ -5,28 +5,12 @@ package implementation;
  */
 
 import code.GuiException;
-import org.bouncycastle.asn1.*;
-import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
-import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.asn1.x500.style.BCStyle;
-import org.bouncycastle.asn1.x500.style.IETFUtils;
-import org.bouncycastle.asn1.x509.*;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.X509Extension;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.jcajce.provider.asymmetric.dsa.BCDSAPublicKey;
-import org.bouncycastle.jce.PrincipalUtil;
-import org.bouncycastle.jce.X509Principal;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
-import org.bouncycastle.pkcs.PKCS10CertificationRequest;
-import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
-import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
-import org.bouncycastle.x509.X509V3CertificateGenerator;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
-import sun.security.provider.DSAPublicKey;
 import sun.security.provider.DSAPublicKeyImpl;
 import x509.v3.CodeV3;
 
@@ -34,10 +18,13 @@ import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
 import java.security.*;
-import java.security.cert.*;
-import java.security.cert.Certificate;
-import java.security.spec.DSAParameterSpec;
-import java.util.*;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.List;
 
 public class MyCode  extends CodeV3{
 
@@ -388,9 +375,12 @@ public class MyCode  extends CodeV3{
     public boolean signCertificate(String issuerAlias, String algorithm) {
 
         try {
+            System.out.println(issuerAlias);
+            System.out.println(algorithm);
+
             // issuer
             PrivateKey issuerPrivateKey = (PrivateKey)myKeyStore.getKey(issuerAlias, keyStorePass);
-            X509Certificate issuerCertChain[] = (X509Certificate[]) myKeyStore.getCertificateChain(issuerAlias);
+            X509Certificate issuerCertChain[] = Helper.convertChain(myKeyStore.getCertificateChain(issuerAlias));
             JcaX509CertificateHolder issuerCertificateHolder = new JcaX509CertificateHolder(issuerCertChain[0]);
             X500Name issuer = issuerCertificateHolder.getSubject();
 
@@ -408,7 +398,7 @@ public class MyCode  extends CodeV3{
 
             KeyPair keyPairForSigning = new KeyPair(subjectOriginalKeypair.getPublic(), issuerPrivateKey);
 
-            X509Certificate signedCert = Helper.generateCertificate(keyPairForSigning, serialNumber.toString(), subject, dateFrom, dateTo, issuer, algorithm);
+            X509Certificate signedCert = Helper.generateCertificate(keyPairForSigning, serialNumber.toString(), issuer, dateFrom, dateTo, subject, algorithm);
 
             X509Certificate[] subjectCertificateChain = new X509Certificate[1 + issuerCertChain.length];
             subjectCertificateChain[0] = signedCert;
@@ -456,11 +446,37 @@ public class MyCode  extends CodeV3{
 
     @Override
     public String getIssuer(String s) {
+        try {
+            X509Certificate certificate = (X509Certificate) myKeyStore.getCertificate(s);
+            JcaX509CertificateHolder issuerCertificateHolder = new JcaX509CertificateHolder(certificate);
+            X500Name issuer = issuerCertificateHolder.getSubject();
+
+            System.out.println("issuer to string " + issuer.toString());
+
+            return issuer.toString();
+        } catch (CertificateEncodingException | KeyStoreException e) {
+            e.printStackTrace();
+        }
         return null;
     }
 
     @Override
     public String getIssuerPublicKeyAlgorithm(String s) {
+
+        try {
+            X509Certificate certificate = (X509Certificate)myKeyStore.getCertificate(s);
+
+//            System.out.println("algo " + certificate.getSigAlgName());
+//            System.out.println("algo " + certificate.getSigAlgOID());
+//            System.out.println("algo " + certificate.getPublicKey().getAlgorithm());
+//            System.out.println("algo " + myKeyStore.getKey(s, keyStorePass).getAlgorithm());
+
+            return certificate.getPublicKey().getAlgorithm();
+
+        } catch (KeyStoreException e) {
+            e.printStackTrace();
+        }
+
         return null;
     }
 
@@ -479,9 +495,14 @@ public class MyCode  extends CodeV3{
             while (aliases.hasMoreElements()) {
                 String alias = aliases.nextElement();
 
+                if (alias.equals(s)) continue;
+
                 X509Certificate certificate = (X509Certificate)myKeyStore.getCertificateChain(alias)[0];
 
-                if (Helper.isCertificateAuthority(certificate)) {
+                System.out.println("alias " + alias + " has bc " + certificate.getBasicConstraints());
+
+                //if (Helper.isCertificateAuthority(certificate)) {
+                if (certificate.getBasicConstraints() != -1) {
                     issuers.add(alias);
                 }
             }
