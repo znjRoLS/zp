@@ -5,22 +5,33 @@ package implementation;
  */
 
 import code.GuiException;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Certificate;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.jcajce.provider.asymmetric.dsa.BCDSAPublicKey;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.bouncycastle.util.io.pem.PemObjectGenerator;
+import org.bouncycastle.util.io.pem.PemWriter;
+import sun.misc.BASE64Encoder;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 import sun.security.provider.DSAPublicKeyImpl;
+import sun.security.provider.X509Factory;
+import sun.security.rsa.RSAPublicKeyImpl;
 import x509.v3.CodeV3;
 
 import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
 import java.security.*;
-import java.security.cert.CertificateEncodingException;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
+import java.security.cert.*;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Enumeration;
@@ -131,7 +142,7 @@ public class MyCode  extends CodeV3{
     @Override
     public int loadKeypair(String s) {
         try {
-            X509Certificate cert = (X509Certificate) myKeyStore.getCertificateChain(s)[0];
+            X509Certificate cert = (X509Certificate) myKeyStore.getCertificate(s);
 
             currentlySelected = s;
 
@@ -141,6 +152,8 @@ public class MyCode  extends CodeV3{
                 keySize = ((BCDSAPublicKey) cert.getPublicKey()).getY().bitLength();
             } else if (cert.getPublicKey() instanceof DSAPublicKeyImpl) {
                 keySize = ((DSAPublicKeyImpl) cert.getPublicKey()).getY().bitLength();
+            } else if (cert.getPublicKey() instanceof RSAPublicKeyImpl) {
+                keySize = ((RSAPublicKeyImpl)cert.getPublicKey()).getPublicExponent().bitLength();
             } else {
                 throw new UnknownError();
             }
@@ -176,7 +189,7 @@ public class MyCode  extends CodeV3{
 
 
             access.setPublicKeyParameter(String.valueOf(keySize));
-            access.setPublicKeyAlgorithm("DSA"); // always the same ?
+            access.setPublicKeyAlgorithm("DSA"); // must be hardcoded
             access.setSerialNumber(String.valueOf(nekiholder.getSerialNumber()));
 
 //            access.setSubjectCountry(subjectcountry);
@@ -186,22 +199,33 @@ public class MyCode  extends CodeV3{
 //            access.setSubjectOrganizationUnit(subjectorganisationUnit);
 //            access.setSubjectCommonName(subjectsubjectName);
             access.setSubject(subject.toString());
-            access.setSubjectSignatureAlgorithm("SHA1withDSA"); // hardcoded!
+            access.setSubjectSignatureAlgorithm(cert.getSigAlgName());
 
             access.setIssuer(issuer.toString());
-            access.setIssuerSignatureAlgorithm("SHA1withDSA");
+            access.setIssuerSignatureAlgorithm(cert.getSigAlgName());
 
             access.setNotBefore(nekiholder.getNotBefore());
             access.setNotAfter(nekiholder.getNotAfter());
 
             access.setVersion(cert.getVersion()==3?2:1);
 
+            access.setCA(cert.getBasicConstraints() != -1);
+
+            if (myKeyStore.isCertificateEntry(s)) {
+                System.out.println("return 2");
+                return 2;
+            } else if (myKeyStore.getCertificateChain(s).length == 1) {
+                System.out.println("return 0");
+                return 0;
+            } else {
+                System.out.println("return 1");
+                return 1;
+            }
+
         } catch (KeyStoreException | CertificateEncodingException e) {
             e.printStackTrace();
             return -1;
         }
-
-        return 0;
     }
 
     @Override
@@ -336,22 +360,10 @@ public class MyCode  extends CodeV3{
 
             return true;
 
-        } catch (KeyStoreException e) {
+        } catch (KeyStoreException | NoSuchProviderException | IOException | NoSuchAlgorithmException | UnrecoverableEntryException | CertificateException e) {
             e.printStackTrace();
-        } catch (NoSuchProviderException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (CertificateException e) {
-            e.printStackTrace();
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        } catch (UnrecoverableEntryException e) {
-            e.printStackTrace();
+            return false;
         }
-
-
-        return false;
     }
 
     private KeyPair getKeyPair(String alias) {
@@ -414,34 +426,61 @@ public class MyCode  extends CodeV3{
 
             saveKeystore();
 
-        } catch (KeyStoreException | NoSuchAlgorithmException | UnrecoverableEntryException e) {
+            return true;
+
+        } catch (KeyStoreException | NoSuchAlgorithmException | UnrecoverableEntryException | IOException | CertificateException | InvalidKeyException | SignatureException | NoSuchProviderException e) {
             e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (CertificateEncodingException e) {
-            e.printStackTrace();
-        } catch (CertificateException e) {
-            e.printStackTrace();
-        } catch (InvalidKeyException e) {
-            e.printStackTrace();
-        } catch (SignatureException e) {
-            e.printStackTrace();
-        } catch (NoSuchProviderException e) {
-            e.printStackTrace();
+            return false;
         }
-
-
-        return true;
     }
 
     @Override
     public boolean importCertificate(File file, String s) {
-        return false;
+
+        try {
+            CertificateFactory fact = CertificateFactory.getInstance("X.509", "BC");
+
+            FileInputStream fileInputStream = new FileInputStream(file);
+
+            X509Certificate certificate = (X509Certificate)fact.generateCertificate(fileInputStream);
+
+            myKeyStore.setCertificateEntry(s, certificate);
+            saveKeystore();
+            return true;
+
+        } catch (CertificateException | KeyStoreException | NoSuchProviderException | NoSuchAlgorithmException | IOException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     @Override
     public boolean exportCertificate(File file, int i) {
-        return false;
+
+        try {
+            java.security.cert.Certificate certificate = myKeyStore.getCertificate(currentlySelected);
+
+            FileOutputStream out = new FileOutputStream(file);
+
+            if (i == 1) {
+                BASE64Encoder encoder = new BASE64Encoder();
+                out.write(X509Factory.BEGIN_CERT.getBytes());
+                out.write("\n".getBytes());
+                encoder.encodeBuffer(certificate.getEncoded(), out);
+                out.write(X509Factory.END_CERT.getBytes());
+                out.write("\n".getBytes());
+            } else {
+                out.write(certificate.getEncoded());
+            }
+
+            out.close();
+
+            return true;
+        } catch (KeyStoreException | IOException | CertificateEncodingException e) {
+            e.printStackTrace();
+            return false;
+        }
+
     }
 
     @Override
@@ -456,8 +495,9 @@ public class MyCode  extends CodeV3{
             return issuer.toString();
         } catch (CertificateEncodingException | KeyStoreException e) {
             e.printStackTrace();
+
+            return null;
         }
-        return null;
     }
 
     @Override
@@ -466,18 +506,14 @@ public class MyCode  extends CodeV3{
         try {
             X509Certificate certificate = (X509Certificate)myKeyStore.getCertificate(s);
 
-//            System.out.println("algo " + certificate.getSigAlgName());
-//            System.out.println("algo " + certificate.getSigAlgOID());
-//            System.out.println("algo " + certificate.getPublicKey().getAlgorithm());
-//            System.out.println("algo " + myKeyStore.getKey(s, keyStorePass).getAlgorithm());
-
             return certificate.getPublicKey().getAlgorithm();
 
         } catch (KeyStoreException e) {
             e.printStackTrace();
+
+            return null;
         }
 
-        return null;
     }
 
     @Override
@@ -497,7 +533,7 @@ public class MyCode  extends CodeV3{
 
                 if (alias.equals(s)) continue;
 
-                X509Certificate certificate = (X509Certificate)myKeyStore.getCertificateChain(alias)[0];
+                X509Certificate certificate = (X509Certificate)myKeyStore.getCertificate(alias);
 
                 System.out.println("alias " + alias + " has bc " + certificate.getBasicConstraints());
 
@@ -506,42 +542,35 @@ public class MyCode  extends CodeV3{
                     issuers.add(alias);
                 }
             }
+            return issuers;
         } catch (KeyStoreException e) {
             e.printStackTrace();
+            return null;
         }
-
-        return issuers;
     }
 
     @Override
-    public boolean generateCSR(String s) {
+    public boolean generateCSR(String alias) {
 
+        try {
+            KeyPair keypair = getKeyPair(alias);
 
+            JcaX509CertificateHolder issuerCertificateHolder = new JcaX509CertificateHolder((X509Certificate)myKeyStore.getCertificate(alias));
+            X500Name issuer = issuerCertificateHolder.getSubject();
 
-        // create a SubjectAlternativeName extension value
-//        GeneralNames subjectAltName = new GeneralNames(
-//                new GeneralName(GeneralName.rfc822Name, "test@test.test"));
-        // create the extensions object and add it as an attribute
-//        Vector oids = new Vector();
-//        Vector values = new Vector();
-//        oids.add(X509Extensions.SubjectAlternativeName);
-//        values.add(new X509Extension(false, new DEROctetString(subjectAltName)));
-//        X509Extensions extensions = new X509Extensions(oids, values);
-//        Attribute attribute = new Attribute(
-//                PKCSObjectIdentifiers.pkcs_9_at_extensionRequest,
-//                new DERSet(extensions));
-//
-//        PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(
-//                new X500Principal("CN=Requested Test Certificate"), pair.getPublic());
-//        JcaContentSignerBuilder csBuilder = new JcaContentSignerBuilder("SHA256withRSA");
-//        ContentSigner signer = csBuilder.build(pair.getPrivate());
-//        PKCS10CertificationRequest csr = p10Builder.build(signer);
-//        p10Builder.setAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest,
-//                new DERSet(extensions) );
+            PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(
+                    issuer, keypair.getPublic());
+            JcaContentSignerBuilder csBuilder = new JcaContentSignerBuilder("SHA1withDSA");
+            ContentSigner signer = csBuilder.build(keypair.getPrivate());
+            PKCS10CertificationRequest csr = p10Builder.build(signer);
 
-//        return csr;
+            return true;
+        } catch (KeyStoreException | CertificateEncodingException | OperatorCreationException e) {
+            e.printStackTrace();
 
-        return true;
+            return false;
+        }
+
 
     }
 }
