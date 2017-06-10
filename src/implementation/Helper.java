@@ -33,29 +33,76 @@ public class Helper {
 
     public static X509Certificate generateSelfCertificate(
             KeyPair pair,
-            BigInteger serialNumber,
-            String issuerDN,
-
-
+            String serialNumber,
+            X500Principal issuerDN,
+            Date from,
+            Date to,
+            X500Principal subjectDN,
+            String signatureAlgorithm
     ) throws SignatureException, NoSuchProviderException, InvalidKeyException {
         X509V3CertificateGenerator certGen = new X509V3CertificateGenerator();
 
-        certGen.setSerialNumber(BigInteger.valueOf(System.currentTimeMillis()));
-        certGen.setIssuerDN(new X500Principal("CN=Test Certificate"));
-        certGen.setNotBefore(new Date(System.currentTimeMillis() - 50000));
-        certGen.setNotAfter(new Date(System.currentTimeMillis() + 50000));
-        certGen.setSubjectDN(new X500Principal("CN=Test Certificate"));
+        certGen.setSerialNumber(BigInteger.valueOf(Long.parseLong(serialNumber)));
+        certGen.setIssuerDN(issuerDN);
+        certGen.setNotBefore(from);
+        certGen.setNotAfter(to);
+        certGen.setSubjectDN(subjectDN);
         certGen.setPublicKey(pair.getPublic());
-        certGen.setSignatureAlgorithm("SHA256WithRSAEncryption");
+        certGen.setSignatureAlgorithm(signatureAlgorithm);
 
-        certGen.addExtension(X509Extensions.BasicConstraints, true, new BasicConstraints(false));
-
-        certGen.addExtension(X509Extensions.KeyUsage, true, new KeyUsage(KeyUsage.digitalSignature | KeyUsage.keyEncipherment));
-
-        certGen.addExtension(X509Extensions.ExtendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth));
-
-        certGen.addExtension(X509Extensions.SubjectAlternativeName, false, new GeneralNames(new GeneralName(GeneralName.rfc822Name, "test@test.test")));
+//        certGen.addExtension(X509Extensions.BasicConstraints, true, new BasicConstraints(false));
+//
+//        certGen.addExtension(X509Extensions.KeyUsage, true, new KeyUsage(KeyUsage.digitalSignature | KeyUsage.keyEncipherment));
+//
+//        certGen.addExtension(X509Extensions.ExtendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth));
+//
+//        certGen.addExtension(X509Extensions.SubjectAlternativeName, false, new GeneralNames(new GeneralName(GeneralName.rfc822Name, "test@test.test")));
 
         return certGen.generateX509Certificate(pair.getPrivate(), "BC");
+    }
+
+    public static X500Principal getPrincipal(
+            String country,
+            String state,
+            String locality,
+            String organization,
+            String organizationUnit,
+            String commonName
+    ) {
+        StringBuilder sb = new StringBuilder();
+        if (!country.equals("")) {
+            sb.append("C=");
+            sb.append(country);
+            sb.append(",");
+        }
+        if (!state.equals("")) {
+            sb.append("ST=");
+            sb.append(state);
+            sb.append(",");
+        }
+        if (!locality.equals("")) {
+            sb.append("L=");
+            sb.append(locality);
+            sb.append(",");
+        }
+        if (!organization.equals("")) {
+            sb.append("O=");
+            sb.append(organization);
+            sb.append(",");
+        }
+        if (!organizationUnit.equals("")) {
+            sb.append("OU=");
+            sb.append(organizationUnit);
+            sb.append(",");
+        }
+        if (!commonName.equals("")) {
+            sb.append("CN=");
+            sb.append(commonName);
+            sb.append(",");
+        }
+
+        sb.setLength(sb.length()-1);
+
+        return new X500Principal(sb.toString());
     }
 }

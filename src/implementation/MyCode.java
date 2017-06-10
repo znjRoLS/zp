@@ -5,16 +5,26 @@ package implementation;
  */
 
 import code.GuiException;
+import org.bouncycastle.asn1.x500.RDN;
+import org.bouncycastle.asn1.x500.style.BCStyle;
+import org.bouncycastle.asn1.x500.style.IETFUtils;
 import org.bouncycastle.asn1.x509.X509Extensions;
 import org.bouncycastle.asn1.x509.X509Name;
+import org.bouncycastle.jce.PrincipalUtil;
+import org.bouncycastle.jce.X509Principal;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.x509.X509V3CertificateGenerator;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+import sun.security.provider.DSAPublicKey;
+import sun.security.provider.DSAPublicKeyImpl;
 import x509.v3.CodeV3;
 
 import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
 import java.security.*;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -25,15 +35,15 @@ import java.util.Enumeration;
 import java.util.List;
 
 public class MyCode  extends CodeV3{
+    static {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+
     public MyCode(boolean[] algorithm_conf, boolean[] extensions_conf) throws GuiException, KeyStoreException {
         super(algorithm_conf, extensions_conf);
     }
 
-    BigInteger p = new BigInteger("13232376895198612407547930718267435757728527029623408872245156039757713029036368719146452186041204237350521785240337048752071462798273003935646236777459223");
-    BigInteger q = new BigInteger("857393771208094202104259627990318636601332086981");
-    BigInteger g = new BigInteger("5421644057436475141609648488325705128047428394380474376834667300766108262613900542681289080713724597310673074119355136085795982097390670890367185141189796");
-
-    KeyStore myKeyStore;
+    private KeyStore myKeyStore;
 
     private static String keyStoreFile;
     private static char[] keyStorePass;
@@ -103,6 +113,53 @@ public class MyCode  extends CodeV3{
 
     @Override
     public int loadKeypair(String s) {
+        try {
+            X509Certificate cert = (X509Certificate) myKeyStore.getCertificateChain(s)[0];
+
+            Integer keySize;
+
+            if (cert.getPublicKey() instanceof DSAPublicKeyImpl) {
+                keySize = ((DSAPublicKeyImpl) cert.getPublicKey()).getY().bitLength();
+            } else {
+                throw new UnknownError();
+            }
+
+            X509Principal principal = PrincipalUtil.getSubjectX509Principal(cert);
+            JcaX509CertificateHolder nekiholder = new JcaX509CertificateHolder(cert);
+            RDN cn = nekiholder.getSubject().getRDNs(BCStyle.CN)[0];
+            String subjectName = IETFUtils.valueToString(cn.getFirst().getValue());
+
+            RDN c = nekiholder.getSubject().getRDNs(BCStyle.C)[0];
+            String country = IETFUtils.valueToString(c.getFirst().getValue());
+
+            access.setSubjectCountry(country);
+            access.setSubjectCommonName(subjectName);
+
+            access.setPublicKeyParameter(String.valueOf(keySize));
+            access.setPublicKeyAlgorithm("DSA"); // always the same ?
+            //access.setSerialNumber(cert.);
+
+            //access.setSubjectCountry(nekiholder.getSubject());
+
+//            String serialNumber = access.getSerialNumber();
+//            X500Principal principal = Helper.getPrincipal(
+//                    access.getSubjectCountry(),
+//                    access.getSubjectState(),
+//                    access.getSubjectLocality(),
+//                    access.getSubjectOrganization(),
+//                    access.getSubjectOrganizationUnit(),
+//                    access.getSubjectCommonName());
+//
+//            Date dateFrom = access.getNotBefore();
+//            Date dateTo = access.getNotAfter();
+
+
+        } catch (KeyStoreException e) {
+            e.printStackTrace();
+            return -1;
+        } catch (CertificateEncodingException e) {
+            e.printStackTrace();
+        }
 
         return 0;
     }
@@ -120,7 +177,10 @@ public class MyCode  extends CodeV3{
         System.out.println("key sig");
         System.out.println(access.getPublicKeySignatureAlgorithm());
 
-        System.out.println(access.)
+        System.out.println(access.getSubjectCountry());
+        System.out.println(access.getSubjectState());
+        System.out.println(access.getSubjectOrganization());
+        System.out.println(access.getSubjectOrganizationUnit());
 
 
         try {
@@ -132,9 +192,30 @@ public class MyCode  extends CodeV3{
             Integer keySize = Integer.parseInt(access.getPublicKeyParameter());
             KeyPair keypair = Helper.generateDSAKeypair(keySize);
 
+            String signatureAlgorithm = access.getPublicKeySignatureAlgorithm();
+            String serialNumber = access.getSerialNumber();
+            X500Principal principal = Helper.getPrincipal(
+                    access.getSubjectCountry(),
+                    access.getSubjectState(),
+                    access.getSubjectLocality(),
+                    access.getSubjectOrganization(),
+                    access.getSubjectOrganizationUnit(),
+                    access.getSubjectCommonName());
+
+            Date dateFrom = access.getNotBefore();
+            Date dateTo = access.getNotAfter();
+
             X509Certificate[] certChain = new X509Certificate[1];
 
+            X509Certificate cert = Helper.generateSelfCertificate(keypair, serialNumber, principal, dateFrom, dateTo, principal, signatureAlgorithm);
 
+            certChain[0] = cert;
+
+            myKeyStore.setEntry(s,
+                    new KeyStore.PrivateKeyEntry(keypair.getPrivate(), certChain),
+                    new KeyStore.PasswordProtection(keyStorePass));
+
+            saveKeystore();
 
 //            // its always dsa, but nevermind
 //            KeyPairGenerator keyGen = KeyPairGenerator.getInstance(access.getPublicKeyAlgorithm());
@@ -176,7 +257,7 @@ public class MyCode  extends CodeV3{
 //
 //            saveKeystore();
 
-        } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
+        } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidKeyException | SignatureException | CertificateException | KeyStoreException | IOException e) {
             e.printStackTrace();
         }
 
