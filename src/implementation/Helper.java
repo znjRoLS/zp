@@ -146,15 +146,15 @@ public class Helper {
         return new X500Principal(sb.toString());
     }
 
-    public static X509Certificate[] convertChain(Certificate[] chain) throws CertificateException {
-        X509Certificate newChain[] = new X509Certificate[chain.length];
-        for (int i = 0 ; i < chain.length; i++) {
-            X509Certificate newCert = (X509Certificate) chain[i];
-            newChain[i] = newCert;
-        }
-
-        return newChain;
-    }
+//    public static X509Certificate[] convertChain(Certificate[] chain) throws CertificateException {
+//        X509Certificate newChain[] = new X509Certificate[chain.length];
+//        for (int i = 0 ; i < chain.length; i++) {
+//            X509Certificate newCert = (X509Certificate) chain[i];
+//            newChain[i] = newCert;
+//        }
+//
+//        return newChain;
+//    }
 
 //    public static boolean isCertificateAuthority(X509Certificate cert){
 //        try {

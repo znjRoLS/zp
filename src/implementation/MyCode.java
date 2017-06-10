@@ -10,6 +10,7 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Certificate;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.jcajce.provider.asymmetric.dsa.BCDSAPublicKey;
+import org.bouncycastle.jcajce.provider.asymmetric.rsa.BCRSAPublicKey;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.operator.ContentSigner;
@@ -82,7 +83,7 @@ public class MyCode  extends CodeV3{
     private void loadOrCreateLocalKeystore() {
         if (myKeyStore == null) {
             try {
-                    myKeyStore  = KeyStore.getInstance(KeyStore.getDefaultType());
+                    myKeyStore  = KeyStore.getInstance("PKCS12", "BC");
 
                     FileInputStream fs = null;
                     try {
@@ -105,6 +106,8 @@ public class MyCode  extends CodeV3{
             } catch (NoSuchAlgorithmException e) {
                 e.printStackTrace();
             } catch (IOException e) {
+                e.printStackTrace();
+            } catch (NoSuchProviderException e) {
                 e.printStackTrace();
             }
         }
@@ -154,6 +157,8 @@ public class MyCode  extends CodeV3{
                 keySize = ((DSAPublicKeyImpl) cert.getPublicKey()).getY().bitLength();
             } else if (cert.getPublicKey() instanceof RSAPublicKeyImpl) {
                 keySize = ((RSAPublicKeyImpl)cert.getPublicKey()).getPublicExponent().bitLength();
+            } else if (cert.getPublicKey() instanceof BCRSAPublicKey) {
+                keySize = ((BCRSAPublicKey)cert.getPublicKey()).getPublicExponent().bitLength();
             } else {
                 throw new UnknownError();
             }
@@ -253,7 +258,7 @@ public class MyCode  extends CodeV3{
             Date dateFrom = access.getNotBefore();
             Date dateTo = access.getNotAfter();
 
-            X509Certificate[] certChain = new X509Certificate[1];
+            //java.security.cert.Certificate[] certChain = new java.security.cert.Certificate[1];
 
             X509Certificate cert = Helper.generateCertificate(
                     keypair,
@@ -265,11 +270,23 @@ public class MyCode  extends CodeV3{
                     signatureAlgorithm,
                     access.isCA());
 
-            certChain[0] = cert;
+            //certChain[0] = new JcaX509CertificateConverter().getCertificate(new JcaX509CertificateHolder(cert));
 
-            myKeyStore.setEntry(s,
-                    new KeyStore.PrivateKeyEntry(keypair.getPrivate(), certChain),
-                    new KeyStore.PasswordProtection(keyStorePass));
+//            myKeyStore.setEntry(s,
+//                    new KeyStore.PrivateKeyEntry(keypair.getPrivate(), new java.security.cert.Certificate[]{cert}),
+//                    new KeyStore.PasswordProtection(keyStorePass));
+
+            //myKeyStore.setKeyEntry(s, keypair.getPrivate(), keyStorePass, new java.security.cert.Certificate[]{cert});
+            myKeyStore.setEntry(
+                    s,
+                    new KeyStore.PrivateKeyEntry(
+                            keypair.getPrivate(),
+                            new java.security.cert.Certificate[]{cert}
+                    ),
+                    new KeyStore.PasswordProtection(
+                            keyStorePass
+                    )
+            );
 
             saveKeystore();
 
@@ -285,9 +302,16 @@ public class MyCode  extends CodeV3{
 
         try {
             myKeyStore.deleteEntry(s);
+            saveKeystore();
         } catch (KeyStoreException e) {
             e.printStackTrace();
             return false;
+        } catch (CertificateException e) {
+            e.printStackTrace();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
         currentlySelected = null;
 
@@ -305,17 +329,34 @@ public class MyCode  extends CodeV3{
                 fs = new FileInputStream(filename);
                 keystore.load(fs, password.toCharArray());
 
-                String onlyKey = keystore.aliases().nextElement();
+                Enumeration<String> aliases = keystore.aliases();
+
+                String onlyKey = aliases.nextElement();
+                while(!keystore.isKeyEntry(onlyKey)) {
+                    onlyKey = aliases.nextElement();
+                }
 
                 KeyPair keyPair = new KeyPair(keystore.getCertificate(onlyKey).getPublicKey(), (PrivateKey)keystore.getKey(onlyKey, password.toCharArray()));
 
+//                myKeyStore.setEntry(
+//                        keypairAlias,
+//                        keystore.getEntry(
+//                                onlyKey,
+//                                new KeyStore.PasswordProtection(password.toCharArray())
+//                        ),
+//                        new KeyStore.PasswordProtection(keyStorePass)
+//                );
+
+                //myKeyStore.setKeyEntry(keypairAlias, keystore.getKey(onlyKey, password.toCharArray()), keyStorePass, keystore.getCertificateChain(onlyKey));
                 myKeyStore.setEntry(
                         keypairAlias,
-                        keystore.getEntry(
-                                onlyKey,
-                                new KeyStore.PasswordProtection(password.toCharArray())
+                        new KeyStore.PrivateKeyEntry(
+                                (PrivateKey)keystore.getKey(onlyKey, password.toCharArray()),
+                                keystore.getCertificateChain(onlyKey)
                         ),
-                        new KeyStore.PasswordProtection(keyStorePass)
+                        new KeyStore.PasswordProtection(
+                                keyStorePass
+                        )
                 );
 
                 saveKeystore();
@@ -345,13 +386,25 @@ public class MyCode  extends CodeV3{
 
             keystore.load(null, password.toCharArray());
 
+//            keystore.setEntry(
+//                    keypairAlias,
+//                    myKeyStore.getEntry(
+//                            keypairAlias,
+//                            new KeyStore.PasswordProtection(keyStorePass)
+//                    ),
+//                    new KeyStore.PasswordProtection(password.toCharArray())
+//            );
+
+            //keystore.setKeyEntry(keypairAlias, myKeyStore.getKey(keypairAlias, keyStorePass), password.toCharArray(), myKeyStore.getCertificateChain(keypairAlias));
             keystore.setEntry(
                     keypairAlias,
-                    myKeyStore.getEntry(
-                            keypairAlias,
-                            new KeyStore.PasswordProtection(keyStorePass)
+                    new KeyStore.PrivateKeyEntry(
+                            (PrivateKey)myKeyStore.getKey(keypairAlias, keyStorePass),
+                            myKeyStore.getCertificateChain(keypairAlias)
                     ),
-                    new KeyStore.PasswordProtection(password.toCharArray())
+                    new KeyStore.PasswordProtection(
+                            password.toCharArray()
+                    )
             );
 
             FileOutputStream fos = new FileOutputStream(filename);
@@ -369,7 +422,7 @@ public class MyCode  extends CodeV3{
     private KeyPair getKeyPair(String alias) {
         try {
             PrivateKey privKey = (PrivateKey) myKeyStore.getKey(alias, keyStorePass);
-            PublicKey publicKey = myKeyStore.getCertificateChain(alias)[0].getPublicKey();
+            PublicKey publicKey = myKeyStore.getCertificate(alias).getPublicKey();
 
             return new KeyPair(publicKey, privKey);
         } catch (KeyStoreException e) {
@@ -392,8 +445,8 @@ public class MyCode  extends CodeV3{
 
             // issuer
             PrivateKey issuerPrivateKey = (PrivateKey)myKeyStore.getKey(issuerAlias, keyStorePass);
-            X509Certificate issuerCertChain[] = Helper.convertChain(myKeyStore.getCertificateChain(issuerAlias));
-            JcaX509CertificateHolder issuerCertificateHolder = new JcaX509CertificateHolder(issuerCertChain[0]);
+            java.security.cert.Certificate issuerCertChain[] = myKeyStore.getCertificateChain(issuerAlias);
+            JcaX509CertificateHolder issuerCertificateHolder = new JcaX509CertificateHolder((X509Certificate)issuerCertChain[0]);
             X500Name issuer = issuerCertificateHolder.getSubject();
 
             // subject
@@ -412,7 +465,8 @@ public class MyCode  extends CodeV3{
 
             X509Certificate signedCert = Helper.generateCertificate(keyPairForSigning, serialNumber.toString(), issuer, dateFrom, dateTo, subject, algorithm);
 
-            X509Certificate[] subjectCertificateChain = new X509Certificate[1 + issuerCertChain.length];
+            java.security.cert.Certificate[] subjectCertificateChain = new java.security.cert.Certificate[1 + issuerCertChain.length];
+
             subjectCertificateChain[0] = signedCert;
             for (int i = 0 ; i < issuerCertChain.length; i++) {
                 subjectCertificateChain[i+1] = issuerCertChain[i];
@@ -420,9 +474,24 @@ public class MyCode  extends CodeV3{
 
             myKeyStore.deleteEntry(currentlySelected);
 
-            myKeyStore.setEntry(currentlySelected,
-                    new KeyStore.PrivateKeyEntry(subjectOriginalKeypair.getPrivate(), subjectCertificateChain),
-                    new KeyStore.PasswordProtection(keyStorePass));
+//            myKeyStore.setEntry(currentlySelected,
+//                    new KeyStore.PrivateKeyEntry(subjectOriginalKeypair.getPrivate(), subjectCertificateChain),
+//                    new KeyStore.PasswordProtection(keyStorePass));
+
+            System.out.println("sta " + subjectCertificateChain.length);
+            //myKeyStore.setKeyEntry(currentlySelected, subjectOriginalKeypair.getPrivate(), keyStorePass, subjectCertificateChain);
+            myKeyStore.setEntry(
+                    currentlySelected,
+                    new KeyStore.PrivateKeyEntry(
+                            subjectOriginalKeypair.getPrivate(),
+                            subjectCertificateChain
+                    ),
+                    new KeyStore.PasswordProtection(
+                            keyStorePass
+                    )
+            );
+            System.out.println("sta " + subjectCertificateChain.length);
+            System.out.println("sta " + myKeyStore.getCertificateChain(currentlySelected).length);
 
             saveKeystore();
 
@@ -444,7 +513,16 @@ public class MyCode  extends CodeV3{
 
             X509Certificate certificate = (X509Certificate)fact.generateCertificate(fileInputStream);
 
-            myKeyStore.setCertificateEntry(s, certificate);
+            //myKeyStore.setCertificateEntry(s, certificate);
+            myKeyStore.setEntry(
+                    s,
+                    new KeyStore.TrustedCertificateEntry(
+                            certificate
+                    ),
+                    new KeyStore.PasswordProtection(
+                            keyStorePass
+                    )
+            );
             saveKeystore();
             return true;
 
