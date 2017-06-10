@@ -5,6 +5,7 @@ package implementation;
  */
 
 import code.GuiException;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -152,33 +153,54 @@ public class MyCode  extends CodeV3{
 
             JcaX509CertificateHolder nekiholder = new JcaX509CertificateHolder(cert);
             X500Name subject = nekiholder.getSubject();
-            RDN c = subject.getRDNs(BCStyle.C)[0];
-            String country = IETFUtils.valueToString(c.getFirst().getValue());
-            RDN st = subject.getRDNs(BCStyle.ST)[0];
-            String state = IETFUtils.valueToString(st.getFirst().getValue());
-            RDN l = subject.getRDNs(BCStyle.L)[0];
-            String locality = IETFUtils.valueToString(l.getFirst().getValue());
-            RDN o = subject.getRDNs(BCStyle.O)[0];
-            String organisation = IETFUtils.valueToString(o.getFirst().getValue());
-            RDN ou = subject.getRDNs(BCStyle.OU)[0];
-            String organisationUnit = IETFUtils.valueToString(ou.getFirst().getValue());
-            RDN cn = subject.getRDNs(BCStyle.CN)[0];
-            String subjectName = IETFUtils.valueToString(cn.getFirst().getValue());
+//            RDN subjectc = subject.getRDNs(BCStyle.C)[0];
+//            String subjectcountry = IETFUtils.valueToString(subjectc.getFirst().getValue());
+//            RDN subjectst = subject.getRDNs(BCStyle.ST)[0];
+//            String subjectstate = IETFUtils.valueToString(subjectst.getFirst().getValue());
+//            RDN subjectl = subject.getRDNs(BCStyle.L)[0];
+//            String subjectlocality = IETFUtils.valueToString(subjectl.getFirst().getValue());
+//            RDN subjecto = subject.getRDNs(BCStyle.O)[0];
+//            String subjectorganisation = IETFUtils.valueToString(subjecto.getFirst().getValue());
+//            RDN subjectou = subject.getRDNs(BCStyle.OU)[0];
+//            String subjectorganisationUnit = IETFUtils.valueToString(subjectou.getFirst().getValue());
+//            RDN subjectcn = subject.getRDNs(BCStyle.CN)[0];
+//            String subjectsubjectName = IETFUtils.valueToString(subjectcn.getFirst().getValue());
+
+            X500Name issuer = nekiholder.getIssuer();
+//            RDN issuerc = issuer.getRDNs(BCStyle.C)[0];
+//            String issuercountry = IETFUtils.valueToString(issuerc.getFirst().getValue());
+//            RDN issuerst = issuer.getRDNs(BCStyle.ST)[0];
+//            String issuerstate = IETFUtils.valueToString(issuerst.getFirst().getValue());
+//            RDN issuerl = issuer.getRDNs(BCStyle.L)[0];
+//            String issuerlocality = IETFUtils.valueToString(issuerl.getFirst().getValue());
+//            RDN issuero = issuer.getRDNs(BCStyle.O)[0];
+//            String issuerorganisation = IETFUtils.valueToString(issuero.getFirst().getValue());
+//            RDN issuerou = issuer.getRDNs(BCStyle.OU)[0];
+//            String issuerorganisationUnit = IETFUtils.valueToString(issuerou.getFirst().getValue());
+//            RDN issuercn = issuer.getRDNs(BCStyle.CN)[0];
+//            String issuersubjectName = IETFUtils.valueToString(issuercn.getFirst().getValue());
 
 
             access.setPublicKeyParameter(String.valueOf(keySize));
             access.setPublicKeyAlgorithm("DSA"); // always the same ?
             access.setSerialNumber(String.valueOf(nekiholder.getSerialNumber()));
 
-            access.setSubjectCountry(country);
-            access.setSubjectState(state);
-            access.setSubjectLocality(locality);
-            access.setSubjectOrganization(organisation);
-            access.setSubjectOrganizationUnit(organisationUnit);
-            access.setSubjectCommonName(subjectName);
+//            access.setSubjectCountry(subjectcountry);
+//            access.setSubjectState(subjectstate);
+//            access.setSubjectLocality(subjectlocality);
+//            access.setSubjectOrganization(subjectorganisation);
+//            access.setSubjectOrganizationUnit(subjectorganisationUnit);
+//            access.setSubjectCommonName(subjectsubjectName);
+            access.setSubject(subject.toString());
+            access.setSubjectSignatureAlgorithm("SHA1withDSA"); // hardcoded!
+
+            access.setIssuer(issuer.toString());
+            access.setIssuerSignatureAlgorithm("SHA1withDSA");
 
             access.setNotBefore(nekiholder.getNotBefore());
             access.setNotAfter(nekiholder.getNotAfter());
+
+            access.setVersion(cert.getVersion()==3?2:1);
 
         } catch (KeyStoreException | CertificateEncodingException e) {
             e.printStackTrace();

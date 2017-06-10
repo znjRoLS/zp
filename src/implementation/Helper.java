@@ -70,36 +70,36 @@ public class Helper {
             String commonName
     ) {
         StringBuilder sb = new StringBuilder();
-        //if (!country.equals("")) {
+        if (!country.equals("")) {
             sb.append("C=");
             sb.append(country);
             sb.append(",");
-        //}
-        //if (!state.equals("")) {
+        }
+        if (!state.equals("")) {
             sb.append("ST=");
             sb.append(state);
             sb.append(",");
-        //}
-        //if (!locality.equals("")) {
+        }
+        if (!locality.equals("")) {
             sb.append("L=");
             sb.append(locality);
             sb.append(",");
-        //}
-        //if (!organization.equals("")) {
+        }
+        if (!organization.equals("")) {
             sb.append("O=");
             sb.append(organization);
             sb.append(",");
-        //}
-        //if (!organizationUnit.equals("")) {
+        }
+        if (!organizationUnit.equals("")) {
             sb.append("OU=");
             sb.append(organizationUnit);
             sb.append(",");
-        //}
-        //if (!commonName.equals("")) {
+        }
+        if (!commonName.equals("")) {
             sb.append("CN=");
             sb.append(commonName);
             sb.append(",");
-        //}
+        }
 
         sb.setLength(sb.length()-1);
 
