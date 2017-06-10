@@ -5,17 +5,24 @@ package implementation;
  */
 
 import code.GuiException;
-import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.*;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
-import org.bouncycastle.asn1.x509.X509Extensions;
-import org.bouncycastle.asn1.x509.X509Name;
+import org.bouncycastle.asn1.x509.*;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.X509Extension;
 import org.bouncycastle.jcajce.provider.asymmetric.dsa.BCDSAPublicKey;
 import org.bouncycastle.jce.PrincipalUtil;
 import org.bouncycastle.jce.X509Principal;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.bouncycastle.x509.X509V3CertificateGenerator;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
@@ -27,21 +34,18 @@ import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
 import java.security.*;
-import java.security.cert.CertificateEncodingException;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
+import java.security.cert.*;
+import java.security.cert.Certificate;
 import java.security.spec.DSAParameterSpec;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.Enumeration;
-import java.util.List;
+import java.util.*;
 
 public class MyCode  extends CodeV3{
 
     private KeyStore myKeyStore;
     private X509Certificate rootCertificate;
     private KeyPair rootKeyPair;
+    //private X509Certificate currentlySelectedCertificate;
+    private String currentlySelected;
 
     private static String keyStoreFile;
     private static char[] keyStorePass;
@@ -57,6 +61,7 @@ public class MyCode  extends CodeV3{
         super(algorithm_conf, extensions_conf);
 
         initRootCertificate();
+        currentlySelected = null;
     }
 
     private void initRootCertificate() {
@@ -140,6 +145,8 @@ public class MyCode  extends CodeV3{
     public int loadKeypair(String s) {
         try {
             X509Certificate cert = (X509Certificate) myKeyStore.getCertificateChain(s)[0];
+
+            currentlySelected = s;
 
             Integer keySize;
 
@@ -237,7 +244,15 @@ public class MyCode  extends CodeV3{
 
             X509Certificate[] certChain = new X509Certificate[1];
 
-            X509Certificate cert = Helper.generateSelfCertificate(keypair, serialNumber, principal, dateFrom, dateTo, principal, signatureAlgorithm);
+            X509Certificate cert = Helper.generateCertificate(
+                    keypair,
+                    serialNumber,
+                    principal,
+                    dateFrom,
+                    dateTo,
+                    principal,
+                    signatureAlgorithm,
+                    access.isCA());
 
             certChain[0] = cert;
 
@@ -263,6 +278,8 @@ public class MyCode  extends CodeV3{
             e.printStackTrace();
             return false;
         }
+        currentlySelected = null;
+
         return true;
     }
 
@@ -350,9 +367,81 @@ public class MyCode  extends CodeV3{
         return false;
     }
 
+    private KeyPair getKeyPair(String alias) {
+        try {
+            PrivateKey privKey = (PrivateKey) myKeyStore.getKey(alias, keyStorePass);
+            PublicKey publicKey = myKeyStore.getCertificateChain(alias)[0].getPublicKey();
+
+            return new KeyPair(publicKey, privKey);
+        } catch (KeyStoreException e) {
+            e.printStackTrace();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (UnrecoverableKeyException e) {
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
     @Override
-    public boolean signCertificate(String s, String s1) {
-        return false;
+    public boolean signCertificate(String issuerAlias, String algorithm) {
+
+        try {
+            // issuer
+            PrivateKey issuerPrivateKey = (PrivateKey)myKeyStore.getKey(issuerAlias, keyStorePass);
+            X509Certificate issuerCertChain[] = (X509Certificate[]) myKeyStore.getCertificateChain(issuerAlias);
+            JcaX509CertificateHolder issuerCertificateHolder = new JcaX509CertificateHolder(issuerCertChain[0]);
+            X500Name issuer = issuerCertificateHolder.getSubject();
+
+            // subject
+            KeyPair subjectOriginalKeypair = getKeyPair(currentlySelected);
+            X509Certificate subjectCertificate = (X509Certificate) myKeyStore.getCertificateChain(currentlySelected)[0];
+
+            JcaX509CertificateHolder subjectCertificateHolder = new JcaX509CertificateHolder(subjectCertificate);
+            X500Name subject = subjectCertificateHolder.getSubject();
+
+            BigInteger serialNumber = subjectCertificateHolder.getSerialNumber();
+
+            Date dateFrom = subjectCertificateHolder.getNotBefore();
+            Date dateTo = subjectCertificateHolder.getNotAfter();
+
+            KeyPair keyPairForSigning = new KeyPair(subjectOriginalKeypair.getPublic(), issuerPrivateKey);
+
+            X509Certificate signedCert = Helper.generateCertificate(keyPairForSigning, serialNumber.toString(), subject, dateFrom, dateTo, issuer, algorithm);
+
+            X509Certificate[] subjectCertificateChain = new X509Certificate[1 + issuerCertChain.length];
+            subjectCertificateChain[0] = signedCert;
+            for (int i = 0 ; i < issuerCertChain.length; i++) {
+                subjectCertificateChain[i+1] = issuerCertChain[i];
+            }
+
+            myKeyStore.deleteEntry(currentlySelected);
+
+            myKeyStore.setEntry(currentlySelected,
+                    new KeyStore.PrivateKeyEntry(subjectOriginalKeypair.getPrivate(), subjectCertificateChain),
+                    new KeyStore.PasswordProtection(keyStorePass));
+
+            saveKeystore();
+
+        } catch (KeyStoreException | NoSuchAlgorithmException | UnrecoverableEntryException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (CertificateEncodingException e) {
+            e.printStackTrace();
+        } catch (CertificateException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (SignatureException e) {
+            e.printStackTrace();
+        } catch (NoSuchProviderException e) {
+            e.printStackTrace();
+        }
+
+
+        return true;
     }
 
     @Override
@@ -382,11 +471,56 @@ public class MyCode  extends CodeV3{
 
     @Override
     public List<String> getIssuers(String s) {
-        return null;
+
+        List<String> issuers = new ArrayList<>();
+
+        try {
+            Enumeration<String> aliases = myKeyStore.aliases();
+            while (aliases.hasMoreElements()) {
+                String alias = aliases.nextElement();
+
+                X509Certificate certificate = (X509Certificate)myKeyStore.getCertificateChain(alias)[0];
+
+                if (Helper.isCertificateAuthority(certificate)) {
+                    issuers.add(alias);
+                }
+            }
+        } catch (KeyStoreException e) {
+            e.printStackTrace();
+        }
+
+        return issuers;
     }
 
     @Override
     public boolean generateCSR(String s) {
-        return false;
+
+
+
+        // create a SubjectAlternativeName extension value
+//        GeneralNames subjectAltName = new GeneralNames(
+//                new GeneralName(GeneralName.rfc822Name, "test@test.test"));
+        // create the extensions object and add it as an attribute
+//        Vector oids = new Vector();
+//        Vector values = new Vector();
+//        oids.add(X509Extensions.SubjectAlternativeName);
+//        values.add(new X509Extension(false, new DEROctetString(subjectAltName)));
+//        X509Extensions extensions = new X509Extensions(oids, values);
+//        Attribute attribute = new Attribute(
+//                PKCSObjectIdentifiers.pkcs_9_at_extensionRequest,
+//                new DERSet(extensions));
+//
+//        PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(
+//                new X500Principal("CN=Requested Test Certificate"), pair.getPublic());
+//        JcaContentSignerBuilder csBuilder = new JcaContentSignerBuilder("SHA256withRSA");
+//        ContentSigner signer = csBuilder.build(pair.getPrivate());
+//        PKCS10CertificationRequest csr = p10Builder.build(signer);
+//        p10Builder.setAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest,
+//                new DERSet(extensions) );
+
+//        return csr;
+
+        return true;
+
     }
 }
