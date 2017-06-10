@@ -6,10 +6,12 @@ package implementation;
 
 import code.GuiException;
 import org.bouncycastle.asn1.x500.RDN;
+import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
 import org.bouncycastle.asn1.x509.X509Extensions;
 import org.bouncycastle.asn1.x509.X509Name;
+import org.bouncycastle.jcajce.provider.asymmetric.dsa.BCDSAPublicKey;
 import org.bouncycastle.jce.PrincipalUtil;
 import org.bouncycastle.jce.X509Principal;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -35,23 +37,38 @@ import java.util.Enumeration;
 import java.util.List;
 
 public class MyCode  extends CodeV3{
-    static {
-        Security.addProvider(new BouncyCastleProvider());
-    }
-
-    public MyCode(boolean[] algorithm_conf, boolean[] extensions_conf) throws GuiException, KeyStoreException {
-        super(algorithm_conf, extensions_conf);
-    }
 
     private KeyStore myKeyStore;
+    private X509Certificate rootCertificate;
+    private KeyPair rootKeyPair;
 
     private static String keyStoreFile;
     private static char[] keyStorePass;
 
     static {
+        Security.addProvider(new BouncyCastleProvider());
+
         keyStoreFile = "myLocalKeyStore";
         keyStorePass = "javolimzp".toCharArray();
     }
+
+    public MyCode(boolean[] algorithm_conf, boolean[] extensions_conf) throws GuiException, KeyStoreException {
+        super(algorithm_conf, extensions_conf);
+
+        initRootCertificate();
+    }
+
+    private void initRootCertificate() {
+        try {
+            rootKeyPair = Helper.generateDSAKeypair(512);
+
+        } catch (NoSuchProviderException | NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+
 
     public static void main(String args[]) {
         System.out.println("testing!");
@@ -108,7 +125,14 @@ public class MyCode  extends CodeV3{
 
     @Override
     public void resetLocalKeystore() {
-        return;
+
+        try {
+            myKeyStore.load(null, keyStorePass);
+            saveKeystore();
+        } catch (IOException | KeyStoreException | CertificateException | NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
     }
 
     @Override
@@ -118,47 +142,47 @@ public class MyCode  extends CodeV3{
 
             Integer keySize;
 
-            if (cert.getPublicKey() instanceof DSAPublicKeyImpl) {
+            if (cert.getPublicKey() instanceof BCDSAPublicKey) {
+                keySize = ((BCDSAPublicKey) cert.getPublicKey()).getY().bitLength();
+            } else if (cert.getPublicKey() instanceof DSAPublicKeyImpl) {
                 keySize = ((DSAPublicKeyImpl) cert.getPublicKey()).getY().bitLength();
             } else {
                 throw new UnknownError();
             }
 
-            X509Principal principal = PrincipalUtil.getSubjectX509Principal(cert);
             JcaX509CertificateHolder nekiholder = new JcaX509CertificateHolder(cert);
-            RDN cn = nekiholder.getSubject().getRDNs(BCStyle.CN)[0];
+            X500Name subject = nekiholder.getSubject();
+            RDN c = subject.getRDNs(BCStyle.C)[0];
+            String country = IETFUtils.valueToString(c.getFirst().getValue());
+            RDN st = subject.getRDNs(BCStyle.ST)[0];
+            String state = IETFUtils.valueToString(st.getFirst().getValue());
+            RDN l = subject.getRDNs(BCStyle.L)[0];
+            String locality = IETFUtils.valueToString(l.getFirst().getValue());
+            RDN o = subject.getRDNs(BCStyle.O)[0];
+            String organisation = IETFUtils.valueToString(o.getFirst().getValue());
+            RDN ou = subject.getRDNs(BCStyle.OU)[0];
+            String organisationUnit = IETFUtils.valueToString(ou.getFirst().getValue());
+            RDN cn = subject.getRDNs(BCStyle.CN)[0];
             String subjectName = IETFUtils.valueToString(cn.getFirst().getValue());
 
-            RDN c = nekiholder.getSubject().getRDNs(BCStyle.C)[0];
-            String country = IETFUtils.valueToString(c.getFirst().getValue());
-
-            access.setSubjectCountry(country);
-            access.setSubjectCommonName(subjectName);
 
             access.setPublicKeyParameter(String.valueOf(keySize));
             access.setPublicKeyAlgorithm("DSA"); // always the same ?
-            //access.setSerialNumber(cert.);
+            access.setSerialNumber(String.valueOf(nekiholder.getSerialNumber()));
 
-            //access.setSubjectCountry(nekiholder.getSubject());
+            access.setSubjectCountry(country);
+            access.setSubjectState(state);
+            access.setSubjectLocality(locality);
+            access.setSubjectOrganization(organisation);
+            access.setSubjectOrganizationUnit(organisationUnit);
+            access.setSubjectCommonName(subjectName);
 
-//            String serialNumber = access.getSerialNumber();
-//            X500Principal principal = Helper.getPrincipal(
-//                    access.getSubjectCountry(),
-//                    access.getSubjectState(),
-//                    access.getSubjectLocality(),
-//                    access.getSubjectOrganization(),
-//                    access.getSubjectOrganizationUnit(),
-//                    access.getSubjectCommonName());
-//
-//            Date dateFrom = access.getNotBefore();
-//            Date dateTo = access.getNotAfter();
+            access.setNotBefore(nekiholder.getNotBefore());
+            access.setNotAfter(nekiholder.getNotAfter());
 
-
-        } catch (KeyStoreException e) {
+        } catch (KeyStoreException | CertificateEncodingException e) {
             e.printStackTrace();
             return -1;
-        } catch (CertificateEncodingException e) {
-            e.printStackTrace();
         }
 
         return 0;
@@ -166,22 +190,6 @@ public class MyCode  extends CodeV3{
 
     @Override
     public boolean saveKeypair(String s) {
-
-        System.out.println("save?");
-        System.out.println(s);
-
-        System.out.println("key algo");
-        System.out.println(access.getPublicKeyAlgorithm());
-        System.out.println("key param");
-        System.out.println(access.getPublicKeyParameter());
-        System.out.println("key sig");
-        System.out.println(access.getPublicKeySignatureAlgorithm());
-
-        System.out.println(access.getSubjectCountry());
-        System.out.println(access.getSubjectState());
-        System.out.println(access.getSubjectOrganization());
-        System.out.println(access.getSubjectOrganizationUnit());
-
 
         try {
 
@@ -217,46 +225,6 @@ public class MyCode  extends CodeV3{
 
             saveKeystore();
 
-//            // its always dsa, but nevermind
-//            KeyPairGenerator keyGen = KeyPairGenerator.getInstance(access.getPublicKeyAlgorithm());
-//
-//            DSAParameterSpec dsaSpec = new DSAParameterSpec(p, q, g);
-//
-//            SecureRandom random = SecureRandom.getInstance("SHA1PRNG", "SUN");
-//            // always 512, but nevermind
-//            Integer keySize = Integer.parseInt(access.getPublicKeyParameter());
-//            keyGen.initialize(keySize, random);
-//
-//            KeyPair pair = keyGen.generateKeyPair();
-//
-//            System.out.println(pair.toString());
-//            System.out.println(new String(pair.getPrivate().getEncoded()));
-//            System.out.println(new String(pair.getPublic().getEncoded()));
-//
-//            Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
-//
-//            X509Certificate[] serverChain = new X509Certificate[1];
-//            X509V3CertificateGenerator serverCertGen = new X509V3CertificateGenerator();
-//            X500Principal serverSubjectName = new X500Principal("CN=OrganizationName");
-//            serverCertGen.setSerialNumber(new BigInteger("123456789"));
-//// X509Certificate caCert=null;
-//            serverCertGen.setIssuerDN(new X509Name("CN=somename"));
-//            serverCertGen.setNotBefore(new Date());
-//            serverCertGen.setNotAfter(new Date());
-//            serverCertGen.setSubjectDN(new X509Name("DN=someothername"));
-//            serverCertGen.setPublicKey(pair.getPublic());
-//            serverCertGen.setSignatureAlgorithm(access.getPublicKeySignatureAlgorithm());
-//// certGen.addExtension(X509Extensions.AuthorityKeyIdentifier, false,new
-//// AuthorityKeyIdentifierStructure(caCert));
-//
-//            serverChain[0] = serverCertGen.generateX509Certificate(pair.getPrivate(), "BC"); // note: private key of CA
-//
-//            myKeyStore.setEntry(s,
-//                    new KeyStore.PrivateKeyEntry(pair.getPrivate(), serverChain),
-//                    new KeyStore.PasswordProtection("".toCharArray()));
-//
-//            saveKeystore();
-
         } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidKeyException | SignatureException | CertificateException | KeyStoreException | IOException e) {
             e.printStackTrace();
         }
@@ -266,16 +234,97 @@ public class MyCode  extends CodeV3{
 
     @Override
     public boolean removeKeypair(String s) {
-        return false;
+
+        try {
+            myKeyStore.deleteEntry(s);
+        } catch (KeyStoreException e) {
+            e.printStackTrace();
+            return false;
+        }
+        return true;
     }
 
     @Override
-    public boolean importKeypair(String s, String s1, String s2) {
-        return false;
+    public boolean importKeypair(String keypairAlias, String filename, String password) {
+
+        try {
+            KeyStore keystore =  KeyStore.getInstance("PKCS12", "BC");
+
+            FileInputStream fs = null;
+            try {
+                fs = new FileInputStream(filename);
+                keystore.load(fs, password.toCharArray());
+
+                String onlyKey = keystore.aliases().nextElement();
+
+                KeyPair keyPair = new KeyPair(keystore.getCertificate(onlyKey).getPublicKey(), (PrivateKey)keystore.getKey(onlyKey, password.toCharArray()));
+
+                myKeyStore.setEntry(
+                        keypairAlias,
+                        keystore.getEntry(
+                                onlyKey,
+                                new KeyStore.PasswordProtection(password.toCharArray())
+                        ),
+                        new KeyStore.PasswordProtection(keyStorePass)
+                );
+
+                saveKeystore();
+
+            } catch (FileNotFoundException e) {
+                //e.printStackTrace();
+                return false;
+            }
+
+            if (fs != null) {
+                fs.close();
+            }
+
+        } catch (KeyStoreException | NoSuchProviderException | CertificateException | NoSuchAlgorithmException | IOException |  UnrecoverableEntryException e) {
+            e.printStackTrace();
+            return false;
+        }
+
+        return true;
     }
 
     @Override
-    public boolean exportKeypair(String s, String s1, String s2) {
+    public boolean exportKeypair(String keypairAlias, String filename, String password) {
+
+        try {
+            KeyStore keystore = KeyStore.getInstance("PKCS12", "BC");
+
+            keystore.load(null, password.toCharArray());
+
+            keystore.setEntry(
+                    keypairAlias,
+                    myKeyStore.getEntry(
+                            keypairAlias,
+                            new KeyStore.PasswordProtection(keyStorePass)
+                    ),
+                    new KeyStore.PasswordProtection(password.toCharArray())
+            );
+
+            FileOutputStream fos = new FileOutputStream(filename);
+            keystore.store(fos, password.toCharArray());
+            fos.close();
+
+            return true;
+
+        } catch (KeyStoreException e) {
+            e.printStackTrace();
+        } catch (NoSuchProviderException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (CertificateException e) {
+            e.printStackTrace();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (UnrecoverableEntryException e) {
+            e.printStackTrace();
+        }
+
+
         return false;
     }
 
